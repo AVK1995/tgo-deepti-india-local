@@ -141,10 +141,16 @@ const WA_DIGITS = business.phoneE164.replace(/\D/g, '');
 const PHONE_DISPLAY = `+91 ${business.phone.slice(0, 5)} ${business.phone.slice(5)}`;
 
 /* Pre-filled so the buyer sends a usable message instead of "hi". The blank
-   labels are the four things the team needs to place a slot by hand. */
-const RESCUE_WA_TEXT = encodeURIComponent(
-  "Hi Deepti, I've paid for my assessment but none of the listed slots work for me. My details: Name: | Email: | Phone: | Preferred day and time:",
-);
+   bullets are the four things the team needs to place a slot by hand.
+   Kept verbatim as supplied by the client (2026-09-30), already encoded. */
+const RESCUE_WA_URL =
+  'https://api.whatsapp.com/send/?phone=919289049674&text=Hi%20Deepti%2C%20I%27ve%20paid%20for%20my%20assessment%2C%20but%20none%20of%20the%20listed%20slots%20work%20for%20me.%0A%0A*Kindly%20fill%20in%20your%20details%20below%20before%20sending%3A*%0A•%20Name%3A%20%0A•%20Email%3A%20%0A•%20Phone%3A%20%0A•%20Preferred%20Day%20%26%20Time%3A%20';
+/* The vertical walkthrough film beside the WhatsApp steps. Vimeo, like every
+   other film on the funnel, so Vimeo draws its own thumbnail (a frame of the
+   film) and play control. Clear the id and the slot falls back to a labelled
+   placeholder at the same size. */
+const RESCUE_VIMEO_ID = '1231553686';
+
 const RESCUE_MAILTO = `mailto:${business.email}?subject=${encodeURIComponent(
   'Assessment booking: preferred slot request',
 )}&body=${encodeURIComponent('Name:\nEmail:\nPhone:\nPreferred day and time:\n')}`;
@@ -448,38 +454,83 @@ function BookACall() {
               is "I have paid and lost my seat", so that is answered in the
               first clause; what to send comes after. It asks for the four
               things Deepti's team needs to place a slot by hand, so the
-              first reply can be a time rather than a request for details. */}
+              first reply can be a time rather than a request for details.
+
+              THREE BLOCKS, not one column (2026-09-30): head, film, body. On
+              desktop the film sits to the right of head+body; on a phone it
+              drops between the reassurance and the steps, so the buyer sees
+              the walkthrough before being asked to act on it. */}
           <div className="bk-rescue bk-wide">
-            <span className="bk-rescue-eyebrow">
-              <AlertIcon size={14} />
-              Preferred slot not available?
-            </span>
-            <h2>Cannot find a time that works for you?</h2>
-            <p>
-              You have already paid and your seat is reserved, so you will not
-              lose it. If none of the times above suit you, send us your{' '}
-              <strong>name, email, phone number and your preferred day and time</strong>
-              , and we will set up your slot personally.
-            </p>
-            <div className="bk-rescue-acts">
-              <a
-                className="bk-rescue-wa"
-                href={`https://wa.me/${WA_DIGITS}?text=${RESCUE_WA_TEXT}`}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <WhatsappIcon size={17} />
-                Message us on WhatsApp
-              </a>
-              <a className="bk-rescue-mail" href={RESCUE_MAILTO}>
-                Email us
-              </a>
+            <div className="bk-rescue-head">
+              <span className="bk-rescue-eyebrow">
+                <AlertIcon size={14} />
+                Preferred slot not available?
+              </span>
+              <h2>Cannot find a time that works for you?</h2>
+              <p>Don&apos;t worry, you have already paid and your seat is reserved.</p>
             </div>
-            <p className="bk-rescue-direct">
-              <a href={`https://wa.me/${WA_DIGITS}`}>{PHONE_DISPLAY}</a>
-              <span aria-hidden> · </span>
-              <a href={`mailto:${business.email}`}>{business.email}</a>
-            </p>
+
+            {/* Captioned ABOVE the film: the label is what earns the play, so
+                it has to be read before the thumbnail, not after it. */}
+            <figure className="bk-rescue-film">
+              <figcaption className="bk-rescue-film-kicker">
+                <span aria-hidden>▶</span> Watch the tutorial Below
+              </figcaption>
+              <div className="bk-rescue-film-frame">
+                {RESCUE_VIMEO_ID ? (
+                  <iframe
+                    src={`https://player.vimeo.com/video/${RESCUE_VIMEO_ID}?title=0&byline=0&portrait=0`}
+                    title="How to book your slot on WhatsApp"
+                    allow="autoplay; fullscreen; picture-in-picture"
+                    allowFullScreen
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="bk-rescue-film-ph" role="img" aria-label="Placeholder: vertical video">
+                    <span>Vertical video</span>
+                    <small>link pending</small>
+                  </div>
+                )}
+              </div>
+            </figure>
+
+            <div className="bk-rescue-body">
+              <ol className="bk-rescue-steps">
+                <li>
+                  <span>Click the button below to open WhatsApp.</span>
+                </li>
+                <li>
+                  <span>
+                    Fill in your <strong>Name, Email, Phone, and Preferred Slot</strong>{' '}
+                    in the pre-typed message box.
+                  </span>
+                </li>
+                <li>
+                  <span>
+                    Hit <strong>Send</strong> so we can manually book your slot.
+                  </span>
+                </li>
+              </ol>
+              <div className="bk-rescue-acts">
+                <a
+                  className="bk-rescue-wa"
+                  href={RESCUE_WA_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <WhatsappIcon size={17} />
+                  Message us on WhatsApp
+                </a>
+                <a className="bk-rescue-mail" href={RESCUE_MAILTO}>
+                  Email us
+                </a>
+              </div>
+              <p className="bk-rescue-direct">
+                <a href={`https://wa.me/${WA_DIGITS}`}>{PHONE_DISPLAY}</a>
+                <span aria-hidden> · </span>
+                <a href={`mailto:${business.email}`}>{business.email}</a>
+              </p>
+            </div>
           </div>
         </div>
 
