@@ -10,8 +10,8 @@ import '../bookacall.css';
  * search result would be booking an assessment they have not bought.
  */
 export const metadata: Metadata = {
-  title: 'Book your assessment',
-  description: 'Choose a time for your personalised health assessment.',
+  title: 'Call booking form',
+  description: 'Fill your call booking form and choose your preferred time.',
   robots: { index: false, follow: false },
 };
 

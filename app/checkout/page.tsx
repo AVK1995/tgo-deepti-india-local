@@ -33,6 +33,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { bumpEnabled, bumpLabel, business, totalLabel } from '@/lib/site';
 import { collectSignals } from '@/lib/client-signals';
+import { COUNTRIES } from '@/lib/countries';
+import { writeBuyerPrefill } from '@/lib/booking-form';
 import {
   trackAddToCart,
   trackBeginCheckout,
@@ -96,29 +98,6 @@ function loadRazorpay(): Promise<boolean> {
   });
 }
 
-/* Dial codes carry the ISO-2 alongside them, because Meta's CAPI wants the
-   COUNTRY as a hashed ISO 3166-1 alpha-2 code and not a dial code.
-
-   India first, then the countries the client's own copy names: "700+ clients
-   across India, USA, Canada, UK, Australia & The Middle East". The Gulf states
-   are listed individually because "Middle East" is not a dial code. */
-const COUNTRIES: { iso: string; dial: string; label: string }[] = [
-  { iso: 'in', dial: '+91', label: 'India (+91)' },
-  { iso: 'ae', dial: '+971', label: 'UAE (+971)' },
-  { iso: 'sa', dial: '+966', label: 'Saudi Arabia (+966)' },
-  { iso: 'qa', dial: '+974', label: 'Qatar (+974)' },
-  { iso: 'om', dial: '+968', label: 'Oman (+968)' },
-  { iso: 'kw', dial: '+965', label: 'Kuwait (+965)' },
-  { iso: 'bh', dial: '+973', label: 'Bahrain (+973)' },
-  { iso: 'us', dial: '+1', label: 'USA (+1)' },
-  { iso: 'ca', dial: '+1', label: 'Canada (+1)' },
-  { iso: 'gb', dial: '+44', label: 'UK (+44)' },
-  { iso: 'au', dial: '+61', label: 'Australia (+61)' },
-  { iso: 'nz', dial: '+64', label: 'New Zealand (+64)' },
-  { iso: 'sg', dial: '+65', label: 'Singapore (+65)' },
-  { iso: 'my', dial: '+60', label: 'Malaysia (+60)' },
-  { iso: 'za', dial: '+27', label: 'South Africa (+27)' },
-];
 
 type Fields = {
   firstName: string;
@@ -215,6 +194,19 @@ export default function CheckoutPage() {
       },
       bump,
     );
+
+    /* Handed to the /book-a-call form so the buyer is not asked for their
+       name, email, city and number twice. Best-effort: blocked storage just
+       means the form starts empty. See writeBuyerPrefill for why it is kept
+       in both session and local storage. */
+    writeBuyerPrefill({
+      firstName: f.firstName.trim(),
+      lastName: f.lastName.trim(),
+      email: f.email.trim(),
+      city: f.city.trim(),
+      country: f.country,
+      phone: f.phone.replace(/\D/g, ''),
+    });
 
     try {
       const sdk = await loadRazorpay();
@@ -348,9 +340,10 @@ export default function CheckoutPage() {
                   </strong>{' '}
                   The moment your payment succeeds, please wait up to{' '}
                   <strong>10 seconds</strong> without closing or refreshing this
-                  tab. You&rsquo;ll then be taken automatically to the calendar
-                  to pick your preferred date and time and book your assessment.
-                  Leaving early may stop your booking from being completed.
+                  tab. You&rsquo;ll then be taken automatically to a short
+                  call booking form, where you share your health details and
+                  your preferred date and time for the call. Leaving early may
+                  stop your details from reaching our team.
                 </p>
               </div>
 

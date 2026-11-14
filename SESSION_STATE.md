@@ -191,7 +191,47 @@ the gold callout in the clause itself. Grep `pending:`.
 3. Programme LENGTH and PRICE. Copy says 12 weeks, the registered trading name
    says 90 days, and the refund window is measured against whichever is right.
 
-### THE FLOW (changed 2026-09-09, read this first)
+### CALENDAR → BOOKING FORM (2026-11-12, read this first)
+The Cal.com embed on `/book-a-call` is GONE, replaced by a qualifying form
+with a preferred date + time (IST, 9 AM–8 PM half-hours, an assumption: edit
+`TIME_SLOTS` in `lib/booking-form.ts`). Questions/options live in
+`lib/booking-form.ts` (shared by page and server validation); the form is
+`components/book-a-call/BookingForm.tsx`. Submits to `/api/booking`, which
+re-validates and forwards a FLAT payload to the NEW env var
+`BOOKING_WEBHOOK_URL` (separate from `PABBLY_WEBHOOK_URL`), carrying
+`payment_id` to join the purchase row. On success: `trackSchedule` then
+`/thank-you?p=<id>&booked=1`, exactly as the Cal handoff did. The
+"cannot find a time?" WhatsApp rescue panel was removed with the calendar.
+Checkout now writes name/email/phone/city to sessionStorage (`dp_buyer`) so
+the form prefills. Older Cal notes below are history.
+
+**Same day, revised:** the form is now a FOUR-STEP stepper (About you · Your
+health · Your commitment · Your preferred date and time), each step validated
+on Continue. "Add guests" was removed on request. Copy reframed as completing
+a "consultation profile": the buyer is NOT booking a slot, but it must not read
+as a "request" either. On success the page does NOT navigate: it swaps to the
+animated confirmation (`components/book-a-call/BookingSuccess.tsx`) carrying
+the client's message ("We have received your payment for 1:1 Consultation
+Call. Our Senior Consultant will get in touch ... 24-48 hours ...") and hides
+every "complete your profile" CTA. `/thank-you` is no longer reached.
+
+Native controls replaced with themed ones: State is a searchable combobox,
+the 1–10 commitment score a draggable slider, the preferred date a swipeable
+day-card strip (tomorrow to +30 days, `DATE_MAX_OFFSET_DAYS`), the preferred
+time an Hour (1–12) + Minute (:00/:30) themed dropdown pair and an AM/PM switch covering the whole day (`HOURS_12`/`MINUTES`/`MERIDIEMS`). The webhook gets the slot in IST and UTC (`preferred_*_ist`, `preferred_*_utc`, plus ISO datetimes; a late IST slot can be the previous UTC day). Field validation is shared client/server in `validateBooking` + `fieldError`. Audited
+with no horizontal overflow at 320/375/390/414/768/1024/1440 through all four
+steps and the confirmation.
+
+**Submission never errors at the buyer (2026-11-12).** `/api/booking` makes
+one 5s attempt; on failure it answers `ok` and retries in the background via
+`after()` (1.5s / 4s / 10s). If `BOOKING_WEBHOOK_URL` is unset or every retry
+fails, the full payload is logged as `[booking] UNDELIVERED {...}`: search the
+host's logs for that string to replay lost rows. The browser also retries
+silently 3x on a dropped connection. Inline CTAs were replaced by one sticky
+"Fill Call Booking Form" bar (hidden while the form is on screen); the
+closing CTA card was removed. Copy says "call booking form", not "profile".
+
+### THE FLOW (changed 2026-09-09)
 
     landing -> /checkout -> PAYMENT -> /book-a-call -> BOOKING -> /thank-you
 

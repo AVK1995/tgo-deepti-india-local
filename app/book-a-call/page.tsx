@@ -1,172 +1,56 @@
 'use client';
 
-import { Suspense, useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { SiteFooter } from '@/components/shared/SiteFooter';
 import { business } from '@/lib/site';
 import { asset } from '@/components/shared/asset-version';
-import { AlertIcon, WhatsappIcon } from '@/components/shared/icons';
-import { trackPurchase, trackSchedule } from '@/lib/track';
+import { WhatsappIcon } from '@/components/shared/icons';
+import { trackPurchase } from '@/lib/track';
+import { BookingForm, type BookingSummary } from '@/components/book-a-call/BookingForm';
+import { BookingSuccess } from '@/components/book-a-call/BookingSuccess';
 
 /**
  * THE SIXTH SURFACE · /book-a-call
  *
- * ── WHERE THIS SITS IN THE FLOW (changed 2026-09-09) ───────────────────
- *   checkout -> PAYMENT -> /book-a-call?p=<payment_id> -> BOOKING -> /thank-you
+ * ── WHERE THIS SITS IN THE FLOW ────────────────────────────────────────
+ *   landing -> checkout -> PAYMENT -> /book-a-call?p=<payment_id> -> PROFILE -> confirmation (same page)
  *
- * This is now the FIRST page after a payment, which moves two jobs onto it:
- *   1. It fires the browser-side GA4 purchase, keyed on the payment id. The
- *      thank-you used to own that and no longer sees the payment first.
- *      Meta's Purchase is unaffected: the Razorpay webhook owns it and always
- *      did, so a buyer who closes the tab here is still counted.
- *   2. It carries the payment id forward, so the thank-you can still key on
- *      it after Cal hands the buyer back.
+ * ── CALENDAR REPLACED BY A STEPPED FORM (2026-11-12) ───────────────────
+ * The Cal.com embed is gone. The buyer completes a four-step consultation
+ * profile (About you · Your health · Your commitment · Your preferred time).
+ * The answers go to /api/booking, which forwards them to BOOKING_WEBHOOK_URL,
+ * and a Senior Consultant then reaches out within 24-48 hours to schedule
+ * the call.
  *
- * Rebuilt 2026-09-09 to the anatomy of vsl.teamfitarjun.com/book-a-call,
- * which Atul named as the house standard for this route. Route name matched
- * for the same reason.
+ * ── THE COPY'S ONE RULE ────────────────────────────────────────────────
+ * The buyer is NOT booking a slot here, and the page must not say they are.
+ * But it must not read as a "request" either, which sounds like it could be
+ * refused after they have paid. So the framing is: the call is theirs, this
+ * is the profile that prepares it, and the team schedules it for them.
  *
- * ── WHAT THE REFERENCE GETS RIGHT, AND WHY IT IS COPIED ────────────────
- * The page is NOT a calendar with a heading on it. It is a page whose whole
- * job is to convert a PAID buyer into a BOOKED buyer, because the gap
- * between those two is where a funnel quietly loses the people it already
- * charged. That is why the reference spends most of its length after the
- * calendar: proof, what the call gets you, a nudge, an objection or two,
- * and a CTA that scrolls back up. Every one of those exists to stop
- * somebody closing the tab meaning to come back on Monday.
+ * ── AFTER SUBMIT ───────────────────────────────────────────────────────
+ * No navigation. The page swaps the form for the animated confirmation
+ * (components/book-a-call/BookingSuccess.tsx) and drops every "complete
+ * your profile" push below it, because on a page whose job is done those
+ * buttons are bugs. /thank-you is no longer reached from this flow.
  *
- * Structure taken from it, in order: confirmation strip, step dots, pill,
- * two-line headline with an italic accent line, deck, THE CALENDAR CARD
- * (header, embed, three reassurances inside the card), proof, a
- * scroll-back CTA, a numbered "what you walk away with", a booking nudge,
- * an objection pair, a closing CTA card, footer.
- *
- * ── WHAT IS DELIBERATELY NOT COPIED ────────────────────────────────────
- * · No logo lockup. Atul removed the wordmark from the build; there is no
- *   mark to put here, and a placeholder is what he asked to be rid of.
- * · No "38% of people who pay never show up". That is the reference's own
- *   measured number. Deepti has no such figure, and inventing a statistic
- *   on a live page is inventing a client fact. The nudge makes the same
- *   argument without a number.
- * · No written testimonial quote. Deepti's testimonials are films, and the
- *   source copy carries no pull quote. An invented one is a fabricated
- *   review, so the slot is left out rather than filled.
- *
- * Everything describing the assessment is the client's own words from
- * FAQ 1 of the landing copy. The connective copy is mine and is worth a
- * NO-BRAINER pass.
+ * Still the FIRST page after a payment, so it still fires the browser-side
+ * GA4 purchase, keyed on the payment id. Meta's Purchase is the webhook's.
  */
 
-/* ── THE BOOKING LINK (cal.com, from the client's snippet 2026-09-19) ───
-   ONE line to change if the handle or event ever changes. It was briefly
-   five env vars, which was plumbing for a value that does not vary: this is
-   one client with one event, so it is a constant.
-
-   Note for any future move OFF cal.com: the loader path is not the same on
-   every Cal instance (cal.id served it at /embed-link/embed.js), so check it
-   rather than assuming the origin swap is enough. That was the whole of the
-   cal.id → cal.com breakage. */
-const CAL_LINK = 'deeptisherawat/1-on-1-health-consultation';
-
-/** The embed app. The script and `Cal('init')` both use this host. */
-const CAL_ORIGIN = 'https://app.cal.com';
-
-/** cal.com namespaces per EVENT, so the namespace IS the slug. */
-const CAL_NS = CAL_LINK.split('/')[1];
-
-/** The public booking page, for the "calendar not showing?" fallback only.
- *  Deliberately cal.com and not the app subdomain: this one is human-facing. */
-const CAL_URL = `https://cal.com/${CAL_LINK}`;
-
-/* Cal's own loader, verbatim from the snippet apart from the url being read
-   from CAL_ORIGIN. It defines window.Cal as a QUEUE straight away and appends
-   the real script itself, which is why nothing here waits on script.onload:
-   calls made before the script lands are replayed when it does. */
-type CalQueue = ((...args: unknown[]) => void) & {
-  loaded?: boolean;
-  ns?: Record<string, (...args: unknown[]) => void>;
-  q?: unknown[][];
-  config?: { forwardQueryParams?: boolean };
-};
-/* Takes the FULL script url, not an origin. It used to build the path itself,
-   which only worked while every Cal instance served the loader at the same
-   place: cal.id uses /embed-link/embed.js and cal.com uses /embed/embed.js, so
-   a derived path is a guess that silently 404s on the wrong host. */
-function loadCal(scriptSrc: string) {
-  const C = window as unknown as { Cal?: CalQueue; document: Document };
-  const A = scriptSrc;
-  const L = 'init';
-  const p = (a: { q?: unknown[][] }, ar: unknown[]) => {
-    (a.q = a.q || []).push(ar);
-  };
-  const d = C.document;
-  C.Cal =
-    C.Cal ||
-    function (this: unknown, ...ar: unknown[]) {
-      const cal = C.Cal as CalQueue;
-      if (!cal.loaded) {
-        cal.ns = {};
-        cal.q = cal.q || [];
-        (d.head.appendChild(d.createElement('script')) as HTMLScriptElement).src = A;
-        cal.loaded = true;
-      }
-      if (ar[0] === L) {
-        const api = function (...a: unknown[]) {
-          p(api as unknown as { q?: unknown[][] }, a);
-        } as unknown as ((...a: unknown[]) => void) & { q?: unknown[][] };
-        const namespace = ar[1];
-        api.q = api.q || [];
-        if (typeof namespace === 'string') {
-          cal.ns![namespace] = cal.ns![namespace] || (api as (...a: unknown[]) => void);
-          p(cal.ns![namespace] as unknown as { q?: unknown[][] }, ar);
-          p(cal as unknown as { q?: unknown[][] }, ['initNamespace', namespace]);
-        } else {
-          p(cal as unknown as { q?: unknown[][] }, ar);
-        }
-        return;
-      }
-      p(cal as unknown as { q?: unknown[][] }, ar);
-    };
-  return C.Cal as CalQueue;
-}
-
-/* ── THE SLOT-FALLBACK LINKS ───────────────────────────────────────────
-   Built from lib/site.ts rather than typed, so the number and address in
-   the block below can never drift from the ones on the legal pages and in
-   the footer, which are the ones Razorpay's merchant review checks.
-
-   wa.me wants bare digits with no plus and no spaces; phoneE164 carries the
+/* wa.me wants bare digits with no plus and no spaces; phoneE164 carries the
    plus, so it is stripped here rather than a second literal being kept. */
 const WA_DIGITS = business.phoneE164.replace(/\D/g, '');
-const PHONE_DISPLAY = `+91 ${business.phone.slice(0, 5)} ${business.phone.slice(5)}`;
 
-/* Pre-filled so the buyer sends a usable message instead of "hi". The blank
-   bullets are the four things the team needs to place a slot by hand.
-   Kept verbatim as supplied by the client (2026-09-30), already encoded. */
-const RESCUE_WA_URL =
-  'https://api.whatsapp.com/send/?phone=919289049674&text=Hi%20Deepti%2C%20I%27ve%20paid%20for%20my%20assessment%2C%20but%20none%20of%20the%20listed%20slots%20work%20for%20me.%0A%0A*Kindly%20fill%20in%20your%20details%20below%20before%20sending%3A*%0A•%20Name%3A%20%0A•%20Email%3A%20%0A•%20Phone%3A%20%0A•%20Preferred%20Day%20%26%20Time%3A%20';
-/* The vertical walkthrough film beside the WhatsApp steps. Vimeo, like every
-   other film on the funnel, so Vimeo draws its own thumbnail (a frame of the
-   film) and play control. Clear the id and the slot falls back to a labelled
-   placeholder at the same size. */
-const RESCUE_VIMEO_ID = '1231553686';
-
-const RESCUE_MAILTO = `mailto:${business.email}?subject=${encodeURIComponent(
-  'Assessment booking: preferred slot request',
-)}&body=${encodeURIComponent('Name:\nEmail:\nPhone:\nPreferred day and time:\n')}`;
-
-/* Inside the calendar card, under the embed: the three things a person
-   hesitating over a time slot is actually wondering. */
+/* Under the form: the three things a buyer hesitating over it is wondering. */
 const REASSURANCES = [
-  ['Deepti and her team', 'A qualified nutritionist reads your reports, not a call centre.'],
-  ['Confirmation by email', 'It arrives the moment you book, with the joining link.'],
-  ['Reschedule if life happens', 'Your confirmation email has the link to move your slot.'],
+  ['Read by a Senior Consultant', 'Your answers are reviewed before the call, so the call is spent on you.'],
+  ['Scheduled for you', 'Our team gets in touch within 24–48 hours to fix your call.'],
+  ['Your time, respected', 'We plan your call around the date and time you choose.'],
 ] as const;
 
-/* Verbatim from FAQ 1 of the landing copy: "Deepti and her team will
-   understand your current weight, health reports, symptoms, eating habits,
-   lifestyle, medical history and previous weight-loss efforts to identify
-   what may be keeping you stuck." Split at the source's own seams. */
+/* Verbatim from FAQ 1 of the landing copy, split at the source's own seams. */
 const WALK_AWAY = [
   {
     title: 'A proper read of your reports',
@@ -208,152 +92,40 @@ function BookACall() {
   const params = useSearchParams();
   const paymentId = params.get('p') ?? '';
   /* Set by the checkout when the order bump was in the paid order, so the
-     GA4 purchase below reports the real total. Revenue only: the webhook's
-     server-side purchase is the authority, and it reads the order itself. */
+     GA4 purchase reports the real total and the profile row carries it. */
   const withBump = params.get('b') === '1';
-  const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading');
+  const [done, setDoneState] = useState<BookingSummary | null>(null);
 
-  /* ── THE EMBED BOOTS ONCE, AND ONLY ONCE (2026-09-19) ────────────────
-     Cal's `inline` command MOUNTS an embed into #dp-cal. Calling it twice
-     does not refresh the first one, it puts a second instance in the same
-     container, and the two then fight over what the container shows: one
-     advances to the questions after a slot is tapped, the other re-renders
-     the month view underneath it. What the buyer sees is the form appear
-     and then snap straight back to slot selection, every time.
+  /* ── THE CONFIRMATION SURVIVES A RELOAD (2026-11-12) ────────────────────
+     Once submitted, the summary is kept for this tab session, keyed on the
+     payment id. A refresh, a back-forward, or a dev-server reload then shows
+     the confirmation again instead of an empty form, which would read as
+     "it did not go through" and invite a duplicate submission. */
+  const doneKey = `dp_booked_${paymentId || 'anon'}`;
+  const setDone = (s: BookingSummary) => {
+    try {
+      sessionStorage.setItem(doneKey, JSON.stringify(s));
+    } catch {
+      /* storage blocked: the confirmation still shows for this page view */
+    }
+    setDoneState(s);
+  };
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(doneKey);
+      if (saved) setDoneState(JSON.parse(saved) as BookingSummary);
+    } catch {
+      /* nothing saved, or unreadable: show the form */
+    }
+  }, [doneKey]);
 
-     It was being called twice. reactStrictMode is on in next.config.ts, and
-     in development StrictMode deliberately runs every effect, cleans it up
-     and runs it AGAIN to surface exactly this class of bug. The cleanup
-     here only cleared the poll; it never tore the embed down, so the second
-     run mounted a second embed on top of the first.
-
-     The ref survives StrictMode's remount of the same component instance,
-     so the second run skips the boot. A genuine unmount and remount gets a
-     fresh component, a fresh ref, and a correct re-boot. */
-  const calBooted = useRef(false);
-
-  /* The success handler is registered once, so it must not close over a
-     stale payment id. A ref is read at fire time; the value itself still
-     comes from the URL. */
-  const payRef = useRef(paymentId);
-  payRef.current = paymentId;
-
-  /* GA4 only, and only with a payment id to key it on. `once()` inside
-     trackPurchase means a refresh or a back-navigation cannot double count. */
+  /* GA4 only, and only with a payment id to key it on. */
   useEffect(() => {
     if (paymentId) trackPurchase(paymentId, withBump);
   }, [paymentId, withBump]);
 
-  useEffect(() => {
-    let cancelled = false;
-    /* The embed reports nothing on success or failure, so the only honest
-       readiness signal is whether an iframe actually appeared in the mount
-       point. Polled, then given up on, rather than assumed. */
-    const started = Date.now();
-    const poll = window.setInterval(() => {
-      if (cancelled) return;
-      if (document.querySelector('#dp-cal iframe')) {
-        setState('ready');
-        window.clearInterval(poll);
-      } else if (Date.now() - started > 9000) {
-        setState('failed');
-        window.clearInterval(poll);
-      }
-    }, 300);
-
-    /* See calBooted above. The poll still runs on every invocation, because
-       it only reads the DOM and drives the readiness message, but the embed
-       itself is mounted exactly once. */
-    if (calBooted.current) {
-      return () => {
-        cancelled = true;
-        window.clearInterval(poll);
-      };
-    }
-    calBooted.current = true;
-
-    try {
-      const Cal = loadCal(`${CAL_ORIGIN}/embed/embed.js`);
-      Cal('init', CAL_NS, { origin: CAL_ORIGIN });
-
-      /* From the client's cal.com snippet. It forwards the PARENT page's query
-         string into the embed, which is what carries ?p=<payment_id> across
-         the seam. The booking-success handler below reads that id from a ref
-         on our side, so this is belt-and-braces rather than load-bearing, but
-         it is in the supplied snippet and costs nothing. */
-      Cal.config = Cal.config || {};
-      Cal.config.forwardQueryParams = true;
-
-      const ns = Cal.ns![CAL_NS];
-
-      ns('inline', {
-        elementOrSelector: '#dp-cal',
-        /* useSlotsViewOnSmallScreen is from the client's snippet: on a narrow
-           screen Cal leads with the time list instead of the month grid, which
-           is the right first thing to show when the grid would be unreadable. */
-        config: { layout: 'month_view', useSlotsViewOnSmallScreen: 'true' },
-        calLink: CAL_LINK,
-      });
-
-      ns('ui', {
-        /* KEPT ACROSS THE cal.com MOVE, deliberately. The client's cal.com
-           snippet carries no cssVarsPerTheme and no theme at all, so taking it
-           verbatim would hand the embed back to Cal's default blue and to the
-           visitor's OS theme. Gold is this funnel's only action colour, so it
-           is the only thing inside the embed that should look clickable
-           either; and light is forced because the page is cream and a dark
-           calendar would otherwise drop into the middle of it. */
-        cssVarsPerTheme: { light: { 'cal-brand': '#E0A32E' }, dark: { 'cal-brand': '#E0A32E' } },
-        theme: 'light',
-        hideEventTypeDetails: false,
-        layout: 'month_view',
-      });
-
-      /* THE HANDOFF. Cal fires this when a booking completes inside the
-         embed, and it is the only reliable in-page signal that the buyer
-         actually booked. Without it they would sit on a confirmed calendar
-         with nowhere to go. The payment id rides along so the thank-you can
-         still key on it.
-
-         Belt and braces: a redirect can also be set on the event type in
-         Cal's own dashboard. If that is ever set it WINS over this, so set it
-         to the same url or leave it empty. */
-      ns('on', {
-        action: 'bookingSuccessful',
-        callback: () => {
-          const id = payRef.current;
-          /* Report the booking BEFORE navigating. `capi()` sends with
-             `keepalive`, so the request survives the navigation this line
-             causes, and `trackSchedule` is keyed on the payment id so a
-             back-navigation into Cal's success state cannot count one booking
-             twice.
-
-             This is the step the funnel exists to produce. Until it was added
-             the ad account could optimise towards someone paying and not
-             towards someone who took a slot, and those are different people. */
-          trackSchedule(id ?? '');
-          const q = id ? `?p=${encodeURIComponent(id)}&booked=1` : '?booked=1';
-          window.location.href = `/thank-you${q}`;
-        },
-      });
-    } catch {
-      if (!cancelled) setState('failed');
-      window.clearInterval(poll);
-    }
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(poll);
-    };
-    /* Deliberately empty. The embed mounts once; the only value the effect
-       needed from outside is the payment id, and that is read through a ref
-       at fire time. Re-running this on any dependency change is what mounted
-       the second embed in the first place. */
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   return (
-    <div className="dp-book">
+    <div className={done ? 'dp-book is-done' : 'dp-book'}>
       {/* 1 · confirmation strip */}
       <div className="bk-strip">
         <span className="bk-strip-tick" aria-hidden>
@@ -363,17 +135,27 @@ function BookACall() {
         <span className="bk-strip-sep" aria-hidden>
           ·
         </span>
-        1 step left
-        <span className="bk-strip-sep" aria-hidden>
-          ·
-        </span>
-        30 minutes with Deepti&rsquo;s team
+        {done ? (
+          <>
+            <span className="bk-strip-tick" aria-hidden>
+              ✓
+            </span>
+            Details received
+          </>
+        ) : (
+          <>
+            1 step left
+            <span className="bk-strip-sep" aria-hidden>
+              ·
+            </span>
+            Takes about 2 minutes
+          </>
+        )}
       </div>
 
       <section className="bk-body">
         <div className="wrap">
-          {/* 2 · step dots. Two steps, one done. The reference uses these to
-              make "you are nearly finished" a picture rather than a claim. */}
+          {/* 2 · step dots */}
           <ol className="bk-steps" aria-label="Progress">
             <li className="done">
               <span className="bk-dot" aria-hidden>
@@ -381,170 +163,63 @@ function BookACall() {
               </span>
               Paid
             </li>
-            <li className="now" aria-current="step">
+            <li className={done ? 'done' : 'now'} aria-current={done ? undefined : 'step'}>
               <span className="bk-dot" aria-hidden>
-                2
+                {done ? '✓' : '2'}
               </span>
-              Book your assessment
+              {done ? 'Form submitted' : 'Call booking form'}
             </li>
           </ol>
 
-          <div className="bk-mast">
-            <span className="bk-pill">One step left</span>
-            <h1>
-              Pick a time. Bring your reports.
-              <br />
-              <em>Leave knowing what is actually going on.</em>
-            </h1>
-            <p className="bk-deck">
-              Your &#8377;97 is in. Now lock the 30 minutes where someone finally
-              reads your reports properly. Slot below.
-            </p>
-          </div>
-
-          {/* 3 · THE CALENDAR CARD */}
-          <div className="bk-card bk-wide" id="calendar">
-            <div className="bk-card-head">
-              <h2>Pick a slot that works for you</h2>
-              <p>All times are shown in your own time zone.</p>
-            </div>
-
-            <div className="bk-cal-inset">
-              {state !== 'ready' && (
-                <p className={state === 'failed' ? 'bk-cal-note failed' : 'bk-cal-note'}>
-                  {state === 'failed'
-                    ? 'The calendar could not load here. Use the direct link below and your booking will work exactly the same.'
-                    : 'Loading the calendar.'}
+          {done ? (
+            <BookingSuccess summary={done} />
+          ) : (
+            <>
+              <div className="bk-mast">
+                <span className="bk-pill">One step left</span>
+                <h1>
+                  Your payment is in. Now tell us about you.
+                  <br />
+                  <em>So your consultation starts from your story.</em>
+                </h1>
+                <p className="bk-deck">
+                  Four short steps. Your answers go straight to the Senior
+                  Consultant who will speak with you, so your call is spent on
+                  you, not on paperwork.
                 </p>
-              )}
-              <div id="dp-cal" className="bk-cal" />
-            </div>
-
-            {/* Always rendered, never revealed on error: a third-party embed
-                fails invisibly, and a blank panel on the page after a payment
-                reads as a broken purchase. */}
-            <p className="bk-direct">
-              Calendar not showing?{' '}
-              <a href={CAL_URL} target="_blank" rel="noopener noreferrer">
-                Open the booking page directly
-              </a>
-              .
-            </p>
-
-            <ul className="bk-reassure">
-              {REASSURANCES.map(([t, b]) => (
-                <li key={t}>
-                  <span className="bk-check" aria-hidden>
-                    ✓
-                  </span>
-                  <span>
-                    <b>{t}.</b> {b}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* ── THE SLOT FALLBACK (2026-09-18, Atul) ──────────────────────
-              For the buyer the calendar cannot serve. They have paid, none
-              of the open times work, and without this the page's only
-              answer is silence: the most likely next move is to close the
-              tab and hope someone gets in touch.
-
-              It sits directly under the calendar rather than at the end of
-              the page, because the moment it is needed is the moment the
-              grid comes back with nothing usable, not ten sections later.
-
-              LEADS WITH THE REASSURANCE, not the instruction. The fear here
-              is "I have paid and lost my seat", so that is answered in the
-              first clause; what to send comes after. It asks for the four
-              things Deepti's team needs to place a slot by hand, so the
-              first reply can be a time rather than a request for details.
-
-              THREE BLOCKS, not one column (2026-09-30): head, film, body. On
-              desktop the film sits to the right of head+body; on a phone it
-              drops between the reassurance and the steps, so the buyer sees
-              the walkthrough before being asked to act on it. */}
-          <div className="bk-rescue bk-wide">
-            <div className="bk-rescue-head">
-              <span className="bk-rescue-eyebrow">
-                <AlertIcon size={14} />
-                Preferred slot not available?
-              </span>
-              <h2>Cannot find a time that works for you?</h2>
-              <p>Don&apos;t worry, you have already paid and your seat is reserved.</p>
-            </div>
-
-            {/* Captioned ABOVE the film: the label is what earns the play, so
-                it has to be read before the thumbnail, not after it. */}
-            <figure className="bk-rescue-film">
-              <figcaption className="bk-rescue-film-kicker">
-                <span aria-hidden>▶</span> Watch the tutorial Below
-              </figcaption>
-              <div className="bk-rescue-film-frame">
-                {RESCUE_VIMEO_ID ? (
-                  <iframe
-                    src={`https://player.vimeo.com/video/${RESCUE_VIMEO_ID}?title=0&byline=0&portrait=0`}
-                    title="How to book your slot on WhatsApp"
-                    allow="autoplay; fullscreen; picture-in-picture"
-                    allowFullScreen
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="bk-rescue-film-ph" role="img" aria-label="Placeholder: vertical video">
-                    <span>Vertical video</span>
-                    <small>link pending</small>
-                  </div>
-                )}
               </div>
-            </figure>
 
-            <div className="bk-rescue-body">
-              <ol className="bk-rescue-steps">
-                <li>
-                  <span>Click the button below to open WhatsApp.</span>
-                </li>
-                <li>
-                  <span>
-                    Fill in your <strong>Name, Email, Phone, and Preferred Slot</strong>{' '}
-                    in the pre-typed message box.
-                  </span>
-                </li>
-                <li>
-                  <span>
-                    Hit <strong>Send</strong> so we can manually book your slot.
-                  </span>
-                </li>
-              </ol>
-              <div className="bk-rescue-acts">
-                <a
-                  className="bk-rescue-wa"
-                  href={RESCUE_WA_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <WhatsappIcon size={17} />
-                  Message us on WhatsApp
-                </a>
-                <a className="bk-rescue-mail" href={RESCUE_MAILTO}>
-                  Email us
-                </a>
+              {/* 3 · THE FORM CARD */}
+              <div className="bk-card" id="profile">
+                <div className="bk-card-head">
+                  <h2>Your call booking form</h2>
+                  <p>4 short steps · about 2 minutes. Questions marked * are required.</p>
+                </div>
+
+                <BookingForm paymentId={paymentId} withBump={withBump} onDone={setDone} />
+
+                <ul className="bk-reassure">
+                  {REASSURANCES.map(([t, b]) => (
+                    <li key={t}>
+                      <span className="bk-check" aria-hidden>
+                        ✓
+                      </span>
+                      <span>
+                        <b>{t}.</b> {b}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               </div>
-              <p className="bk-rescue-direct">
-                <a href={`https://wa.me/${WA_DIGITS}`}>{PHONE_DISPLAY}</a>
-                <span aria-hidden> · </span>
-                <a href={`mailto:${business.email}`}>{business.email}</a>
-              </p>
-            </div>
-          </div>
+            </>
+          )}
         </div>
 
-        {/* 4 · proof. Deepti's proof is the client chats, so that is what runs
-            here, a slice of the wall rather than the whole thing. */}
+        {/* 4 · proof */}
         <div className="bk-proof">
           <div className="wrap">
             <h2 className="bk-h2">
-              They came in with the same reports. <em>Then they picked a slot.</em>
+              They started with the same reports. <em>Then they told us their story.</em>
             </h2>
             <p className="bk-h2-sub">Real clients, mid-programme, in their own words.</p>
           </div>
@@ -571,12 +246,6 @@ function BookACall() {
               </div>
             ))}
           </div>
-          <div className="wrap bk-mid-cta">
-            <a className="bk-btn" href="#calendar">
-              Pick my slot
-              <span aria-hidden>&nbsp;&rarr;</span>
-            </a>
-          </div>
         </div>
 
         <div className="wrap">
@@ -594,26 +263,25 @@ function BookACall() {
             ))}
           </ol>
 
-          {/* 6 · the nudge. Same argument as the reference makes with its own
-              measured no-show number, made without one, because Deepti has no
-              such figure and a made-up statistic is a made-up client fact. */}
-          <div className="bk-nudge">
-            <h2>
-              The slot is the part people leave <em>for Monday.</em>
-            </h2>
-            <p>
-              Paying was the decision. Booking is the one that puts a date on it.
-              The assessment is already yours, it just needs a time against it,
-              and the calendar above takes about twenty seconds.
-            </p>
-            <a className="bk-btn" href="#calendar">
-              Pick my slot
-              <span aria-hidden>&nbsp;&rarr;</span>
-            </a>
-          </div>
+          {/* 6 · the nudge. Only while there is still something to do. Its
+              button lives in the sticky bar now, not inline. */}
+          {!done && (
+            <div className="bk-nudge">
+              <h2>
+                This is the part people leave <em>for Monday.</em>
+              </h2>
+              <p>
+                Paying was the decision. These answers are what let us prepare
+                for you. They take about two minutes, and then our team takes it
+                from there.
+              </p>
+            </div>
+          )}
 
-          {/* 7 · the two objections that stand between paid and booked */}
-          <h2 className="bk-h2">Two quick questions before you book</h2>
+          {/* 7 · objections before, preparation after */}
+          <h2 className="bk-h2">
+            {done ? 'Before your call' : 'Two quick questions before you continue'}
+          </h2>
           <div className="bk-faq">
             {FAQS.map((f) => (
               <details key={f.q}>
@@ -623,27 +291,78 @@ function BookACall() {
             ))}
           </div>
 
-          {/* 8 · closing card */}
-          <div className="bk-final">
-            <h2>
-              You&rsquo;ve paid. Now <em>lock the time.</em>
-            </h2>
-            <p>One slot. 30 minutes. Then the reading of your reports begins.</p>
-            <a className="bk-btn lg" href="#calendar">
-              Take me to the calendar
-              <span aria-hidden>&nbsp;&rarr;</span>
-            </a>
-          </div>
-
           <p className="bk-help">
-            Trouble booking? Write to{' '}
-            <a href={`mailto:${business.email}`}>{business.email}</a> or call{' '}
+            {done ? 'Questions in the meantime?' : 'Need help?'}{' '}
+            <a href={`https://wa.me/${WA_DIGITS}`} target="_blank" rel="noopener noreferrer">
+              <WhatsappIcon size={13} /> WhatsApp us
+            </a>
+            , write to <a href={`mailto:${business.email}`}>{business.email}</a> or call{' '}
             <a href={`tel:${business.phoneE164}`}>{business.phone}</a>.
           </p>
         </div>
       </section>
 
       <SiteFooter />
+
+      {/* The one call to action below the form, on every screen size. A
+          spacer keeps it from covering the footer's last lines. */}
+      {!done && (
+        <>
+          <div className="bk-sticky-spacer" aria-hidden />
+          <StickyFormCta />
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * THE STICKY "FILL CALL BOOKING FORM" BAR (2026-11-12)
+ *
+ * Replaces the buttons that used to sit in the proof, nudge and closing
+ * sections. Hidden while any part of the form card is on screen (the buyer
+ * is looking at or filling it, and a bar over the form's own buttons would
+ * be in the way), and slides up once the form has scrolled fully out of
+ * view ABOVE. Above-only: on first load the form sits below the masthead,
+ * and a bar pointing at something already about to be read is noise.
+ */
+function StickyFormCta() {
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    const card = document.getElementById('profile');
+    if (!card) return;
+    const io = new IntersectionObserver(
+      ([e]) => setShow(!e.isIntersecting && e.boundingClientRect.top < 0),
+      { threshold: 0 },
+    );
+    io.observe(card);
+    return () => io.disconnect();
+  }, []);
+
+  const go = () => {
+    const card = document.getElementById('profile');
+    card?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    /* hand focus to the first field once there, for keyboard users */
+    window.setTimeout(() => {
+      card?.querySelector<HTMLElement>('input, button[role="radio"], .bk-sel-btn')?.focus({ preventScroll: true });
+    }, 600);
+  };
+
+  return (
+    <div className={show ? 'bk-sticky on' : 'bk-sticky'} aria-hidden={!show}>
+      <div className="bk-sticky-in">
+        <p className="bk-sticky-text">
+          <span className="bk-sticky-dot" aria-hidden />
+          <span>
+            <b>1 step left.</b> Takes about 2 minutes.
+          </span>
+        </p>
+        <button type="button" className="bk-btn bk-sticky-btn" onClick={go} tabIndex={show ? 0 : -1}>
+          Fill Call Booking Form
+          <span aria-hidden>&nbsp;&rarr;</span>
+        </button>
+      </div>
     </div>
   );
 }

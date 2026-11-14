@@ -144,8 +144,9 @@ export function trackPurchase(transactionId: string, withBump = false) {
 }
 
 /**
- * The call was actually booked. Fired from Cal's `bookingSuccessful` callback
- * and nowhere else.
+ * The call was actually booked. Fired by the /book-a-call booking form once
+ * /api/booking has accepted the answers, and nowhere else. (Until 2026-11-12
+ * this was Cal's `bookingSuccessful` callback.)
  *
  * WHY THIS EXISTS: the payment is not the outcome of this funnel, the booked
  * call is. Until this was added the ad account could optimise towards someone
