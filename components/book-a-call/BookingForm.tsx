@@ -1,23 +1,18 @@
 'use client';
 
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   clearBuyerPrefill,
   readBuyerPrefill,
   usablePrefill,
   CONCERNS,
-  DATE_MAX_OFFSET_DAYS,
-  DATE_MIN_OFFSET_DAYS,
   DECISION,
   INVESTMENT,
+  LANGUAGE,
   OTHER,
   SHOW_UP,
   SITUATION,
-  HOURS_12,
-  MERIDIEMS,
-  MINUTES,
-  TIME_SLOTS,
   TRIED,
   WHY_NOW,
   allValid,
@@ -25,7 +20,6 @@ import {
   cleanName,
   cleanPhone,
   fieldError,
-  splitSlot,
   validateBooking,
   type BookingAnswers,
 } from '@/lib/booking-form';
@@ -39,7 +33,7 @@ import { ArrowLeftIcon, ArrowRightIcon } from '@/components/shared/icons';
  *
  * FOUR STEPS, one group of questions at a time, so a paid buyer never faces
  * the whole questionnaire at once: About you · Your health · Your commitment
- * · Your preferred time. Each step validates on its own "Continue"; the last
+ * · Your preferred language. Each step validates on its own "Continue"; the last
  * one posts everything to /api/booking, which forwards it to the booking
  * webhook.
  *
@@ -81,8 +75,7 @@ const EMPTY: BookingAnswers = {
   profession: '',
   decision: '',
   showUp: '',
-  preferredDate: '',
-  preferredTime: '',
+  preferredLanguage: '',
 };
 
 type Key = keyof ReturnType<typeof validateBooking>;
@@ -106,26 +99,19 @@ const STEPS: { title: string; deck: string; keys: Key[] }[] = [
     keys: ['investment', 'commitment', 'profession', 'decision', 'showUp'],
   },
   {
-    title: 'Your preferred date and time',
-    deck: 'Tell us when suits you best. Your consultant will schedule your call around it.',
-    keys: ['preferredDate', 'preferredTime'],
+    /* Replaced the preferred date and time pickers (2026-11-16): the team
+       schedules the call itself and only needs the language to hold it in. */
+    title: 'Your preferred language',
+    deck: 'Tell us which language you would like your consultation call in.',
+    keys: ['preferredLanguage'],
   },
 ];
-
-/** Local calendar date as YYYY-MM-DD, offset by whole days from today. */
-function isoDay(offset: number) {
-  const d = new Date();
-  d.setDate(d.getDate() + offset);
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
 
 /** What the confirmation screen shows back to the buyer. */
 export type BookingSummary = {
   firstName: string;
   whatsapp: string;
-  preferredDate: string;
-  preferredTime: string;
+  preferredLanguage: string;
 };
 
 export function BookingForm({
@@ -177,23 +163,12 @@ export function BookingForm({
     }));
 
   const v = useMemo(() => validateBooking(a), [a]);
-  const dateMin = useMemo(() => isoDay(DATE_MIN_OFFSET_DAYS), []);
-  const dateMax = useMemo(() => isoDay(DATE_MAX_OFFSET_DAYS), []);
-  const dateInRange = !a.preferredDate || (a.preferredDate >= dateMin && a.preferredDate <= dateMax);
 
   const stepOf = (k: Key) => STEPS.findIndex((s) => s.keys.includes(k));
-  const bad = (k: Key) =>
-    touched[stepOf(k)] && (!v[k] || (k === 'preferredDate' && !dateInRange));
+  const bad = (k: Key) => touched[stepOf(k)] && !v[k];
   /** The message under a failing field, once its step has been checked. */
-  const err = (k: Key) => {
-    if (!bad(k)) return '';
-    if (k === 'preferredDate' && v.preferredDate && !dateInRange) {
-      return 'Please choose a date within the next 30 days.';
-    }
-    return fieldError(a, k);
-  };
-  const stepValid = (i: number) =>
-    STEPS[i].keys.every((k) => v[k]) && (i !== 3 || dateInRange);
+  const err = (k: Key) => (bad(k) ? fieldError(a, k) : '');
+  const stepValid = (i: number) => STEPS[i].keys.every((k) => v[k]);
 
   /* Bring the top of the card back into view on every step change, so a
      buyer who scrolled down to "Continue" lands on the next step's first
@@ -309,8 +284,7 @@ export function BookingForm({
     onDone({
       firstName: a.firstName.trim(),
       whatsapp: `${a.dialCode} ${a.phone.replace(/\D/g, '')}`,
-      preferredDate: a.preferredDate,
-      preferredTime: a.preferredTime,
+      preferredLanguage: a.preferredLanguage,
     });
   };
 
@@ -334,7 +308,7 @@ export function BookingForm({
               aria-current={i === step ? 'step' : undefined}
             >
               <span className="bk-progress-bar" />
-              <span className="bk-progress-label">{s.title.replace('Your preferred date and time', 'Your time')}</span>
+              <span className="bk-progress-label">{s.title.replace('Your preferred language', 'Language')}</span>
             </li>
           ))}
         </ol>
@@ -558,29 +532,15 @@ export function BookingForm({
         )}
 
         {step === 3 && (
-          <>
-            <DatePick
-              value={a.preferredDate}
-              onChange={(d) => set('preferredDate', d)}
-              bad={bad('preferredDate')} error={err('preferredDate')}
-            />
-            <TimePick
-              value={a.preferredTime}
-              onChange={(t) => set('preferredTime', t)}
-              bad={bad('preferredTime')} error={err('preferredTime')}
-            />
-            {a.preferredDate && a.preferredTime && dateInRange && (
-              <p className="bk-when-sum" key={`${a.preferredDate}-${a.preferredTime}`}>
-                <span className="bk-when-tick" aria-hidden>
-                  ✓
-                </span>
-                <span>
-                  Your preferred slot: <b>{longDate(a.preferredDate)}</b> at{' '}
-                  <b>{a.preferredTime} IST</b>
-                </span>
-              </p>
-            )}
-          </>
+          <Choice
+            name="preferredLanguage"
+            question="Preferred Language"
+            options={LANGUAGE}
+            value={a.preferredLanguage}
+            onChange={(x) => set('preferredLanguage', x)}
+            bad={bad('preferredLanguage')}
+            error={err('preferredLanguage')}
+          />
         )}
       </fieldset>
 
@@ -623,364 +583,6 @@ export function BookingForm({
 }
 
 /* ── small pieces ──────────────────────────────────────────────── */
-
-/** "2026-11-15" -> "Sunday, 15 November" */
-function longDate(iso: string) {
-  const [y, m, d] = iso.split('-').map(Number);
-  if (!y || !m || !d) return iso;
-  return new Date(y, m - 1, d).toLocaleDateString('en-IN', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-  });
-}
-
-/**
- * Preferred DATE as a swipeable strip of day cards (tomorrow to 30 days
- * out), replacing the browser's date popup. Touch: swipe, with scroll-snap.
- * Desktop: the arrow buttons page through a screenful at a time. The month
- * shows above the strip and follows the first visible card.
- */
-function DatePick({
-  value,
-  onChange,
-  bad,
-  error = '',
-}: {
-  value: string;
-  onChange: (iso: string) => void;
-  bad: boolean;
-  error?: string;
-}) {
-  const stripRef = useRef<HTMLDivElement>(null);
-  const [edge, setEdge] = useState({ start: true, end: false });
-  const [month, setMonth] = useState('');
-
-  const days = useMemo(() => {
-    const out: { iso: string; wd: string; d: number; mon: string; monLong: string }[] = [];
-    for (let i = DATE_MIN_OFFSET_DAYS; i <= DATE_MAX_OFFSET_DAYS; i++) {
-      const dt = new Date();
-      dt.setDate(dt.getDate() + i);
-      out.push({
-        iso: isoDay(i),
-        wd: dt.toLocaleDateString('en-IN', { weekday: 'short' }),
-        d: dt.getDate(),
-        mon: dt.toLocaleDateString('en-IN', { month: 'short' }),
-        monLong: dt.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }),
-      });
-    }
-    return out;
-  }, []);
-
-  /* Track the scroll: which arrows are live, and which month is in view. */
-  const sync = () => {
-    const el = stripRef.current;
-    if (!el) return;
-    setEdge({ start: el.scrollLeft < 4, end: el.scrollLeft + el.clientWidth >= el.scrollWidth - 4 });
-    const first = Array.from(el.children).find(
-      (c) => (c as HTMLElement).offsetLeft + (c as HTMLElement).offsetWidth / 2 >= el.scrollLeft,
-    ) as HTMLElement | undefined;
-    const idx = first ? Number(first.dataset.i) : 0;
-    setMonth(days[idx]?.monLong ?? '');
-  };
-
-  useEffect(() => {
-    sync();
-    /* bring an existing pick into view when the step is revisited */
-    if (value) {
-      const el = stripRef.current?.querySelector<HTMLElement>(`[data-iso="${value}"]`);
-      el?.scrollIntoView({ block: 'nearest', inline: 'center' });
-    }
-    const onResize = () => sync();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const page = (dir: 1 | -1) => {
-    const el = stripRef.current;
-    if (!el) return;
-    el.scrollBy({ left: dir * el.clientWidth * 0.85, behavior: 'smooth' });
-  };
-
-  return (
-    <div className="bk-field bk-datepick" data-bad={bad || undefined}>
-      <div className="bk-pick-head">
-        <span className="bk-label" id="lbl-date">
-          Preferred date <Req />
-        </span>
-        <span className="bk-pick-month" aria-live="polite">
-          {month}
-        </span>
-        <span className="bk-pick-arrows">
-          <button type="button" onClick={() => page(-1)} disabled={edge.start} aria-label="Earlier dates">
-            <ArrowLeftIcon size={13} />
-          </button>
-          <button type="button" onClick={() => page(1)} disabled={edge.end} aria-label="Later dates">
-            <ArrowRightIcon size={13} />
-          </button>
-        </span>
-      </div>
-      <div
-        className={['bk-days-wrap', edge.start ? '' : 'fade-l', edge.end ? '' : 'fade-r'].join(' ').trim()}
-      >
-        <div
-          className="bk-days"
-          ref={stripRef}
-          onScroll={sync}
-          role="radiogroup"
-          aria-labelledby="lbl-date"
-        >
-          {days.map((d, i) => {
-            const on = d.iso === value;
-            const weekend = d.wd === 'Sat' || d.wd === 'Sun';
-            return (
-              <button
-                key={d.iso}
-                type="button"
-                role="radio"
-                aria-checked={on}
-                aria-label={longDate(d.iso)}
-                data-iso={d.iso}
-                data-i={i}
-                className={['bk-day', on ? 'on' : '', weekend ? 'wknd' : ''].join(' ').trim()}
-                onClick={(e) => {
-                  onChange(d.iso);
-                  /* a half-hidden card slides fully into view when picked */
-                  e.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
-                }}
-              >
-                <span className="bk-day-wd">{i === 0 ? 'Tmrw' : d.wd}</span>
-                <span className="bk-day-d">{d.d}</span>
-                <span className="bk-day-mon">{d.mon}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-      {error && <span className="bk-err">{error}</span>}
-    </div>
-  );
-}
-
-/**
- * Preferred TIME as hour + minute dropdowns and an AM/PM switch, across the
- * whole day in half-hour steps. Minute starts on :00 so the common case is
- * two taps (hour, then AM or PM); the value reaches the form only once all
- * three parts are set, as "h:mm AM".
- *
- * The dropdowns are the theme's own (ThemedSelect below), not the OS menu.
- * AM/PM is a two-way switch rather than a third dropdown: with only two
- * choices, one tap beats open-then-pick.
- */
-function TimePick({
-  value,
-  onChange,
-  bad,
-  error = '',
-}: {
-  value: string;
-  onChange: (t: string) => void;
-  bad: boolean;
-  error?: string;
-}) {
-  const init = splitSlot(value);
-  const [h, setH] = useState(init?.h ?? '');
-  const [m, setM] = useState(init?.m ?? '00');
-  const [ap, setAp] = useState<'' | 'AM' | 'PM'>(init?.ap ?? '');
-
-  const emit = (nh: string, nm: string, nap: string) =>
-    onChange(nh && nm && nap ? `${nh}:${nm} ${nap}` : '');
-
-  return (
-    <div className="bk-field bk-timepick" data-bad={bad || undefined}>
-      <div className="bk-pick-head">
-        <span className="bk-label" id="lbl-time">
-          Preferred time (IST) <Req />
-        </span>
-      </div>
-      <div className="bk-time-row" role="group" aria-labelledby="lbl-time">
-        <ThemedSelect
-          ariaLabel="Hour"
-          placeholder="Hour"
-          options={HOURS_12}
-          value={h}
-          bad={bad && !h}
-          onChange={(x) => {
-            setH(x);
-            emit(x, m, ap);
-          }}
-        />
-        <span className="bk-time-colon" aria-hidden>
-          :
-        </span>
-        <ThemedSelect
-          ariaLabel="Minutes"
-          placeholder="Min"
-          options={MINUTES}
-          value={m}
-          bad={bad && !m}
-          onChange={(x) => {
-            setM(x);
-            emit(h, x, ap);
-          }}
-        />
-        <div
-          className={['bk-ampm', bad && !ap ? 'is-bad' : ''].join(' ').trim()}
-          role="radiogroup"
-          aria-label="AM or PM"
-          style={{ '--ai': ap === 'PM' ? 1 : 0 } as React.CSSProperties}
-        >
-          {ap && <span className="bk-ampm-ink" aria-hidden />}
-          {MERIDIEMS.map((x) => (
-            <button
-              key={x}
-              type="button"
-              role="radio"
-              aria-checked={ap === x}
-              className={ap === x ? 'on' : undefined}
-              onClick={() => {
-                setAp(x);
-                emit(h, m, x);
-              }}
-            >
-              {x}
-            </button>
-          ))}
-        </div>
-      </div>
-      {error ? (
-        <span className="bk-err">{error}</span>
-      ) : (
-        <span className="bk-note">Indian Standard Time (UTC+5:30), in 30-minute steps.</span>
-      )}
-    </div>
-  );
-}
-
-/**
- * A small themed dropdown: a button that opens a listbox popover in the
- * page's own style. Keyboard: Enter, Space or Down to open, arrows to move,
- * Enter to pick, Escape to close. Closes on any press outside.
- */
-function ThemedSelect({
-  options,
-  value,
-  onChange,
-  placeholder,
-  ariaLabel,
-  bad,
-}: {
-  options: readonly string[];
-  value: string;
-  onChange: (v: string) => void;
-  placeholder: string;
-  ariaLabel: string;
-  bad?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(0);
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const listRef = useRef<HTMLUListElement>(null);
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const id = useId();
-
-  useEffect(() => {
-    if (!open) return;
-    const off = (e: PointerEvent) => {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('pointerdown', off);
-    return () => document.removeEventListener('pointerdown', off);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    (listRef.current?.children[active] as HTMLElement | undefined)?.scrollIntoView({ block: 'nearest' });
-  }, [active, open]);
-
-  const openList = () => {
-    setActive(Math.max(0, options.indexOf(value)));
-    setOpen(true);
-  };
-  const pick = (v: string) => {
-    onChange(v);
-    setOpen(false);
-    btnRef.current?.focus();
-  };
-
-  const onKey = (e: React.KeyboardEvent) => {
-    if (!open) {
-      if (['Enter', ' ', 'ArrowDown', 'ArrowUp'].includes(e.key)) {
-        e.preventDefault();
-        openList();
-      }
-      return;
-    }
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setActive((i) => Math.min(i + 1, options.length - 1));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setActive((i) => Math.max(i - 1, 0));
-    } else if (e.key === 'Home') {
-      e.preventDefault();
-      setActive(0);
-    } else if (e.key === 'End') {
-      e.preventDefault();
-      setActive(options.length - 1);
-    } else if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      pick(options[active]);
-    } else if (e.key === 'Escape' || e.key === 'Tab') {
-      setOpen(false);
-    }
-  };
-
-  return (
-    <div className="bk-sel" ref={wrapRef}>
-      <button
-        ref={btnRef}
-        type="button"
-        className={['bk-sel-btn', value ? '' : 'empty', open ? 'open' : ''].join(' ').trim()}
-        aria-label={ariaLabel}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-controls={`${id}-list`}
-        aria-activedescendant={open ? `${id}-${active}` : undefined}
-        aria-invalid={bad || undefined}
-        onClick={() => (open ? setOpen(false) : openList())}
-        onKeyDown={onKey}
-      >
-        <span>{value || placeholder}</span>
-        <span className={open ? 'bk-combo-chev up' : 'bk-combo-chev'} aria-hidden />
-      </button>
-      {open && (
-        <ul className="bk-sel-list" id={`${id}-list`} role="listbox" aria-label={ariaLabel} ref={listRef}>
-          {options.map((o, i) => (
-            <li
-              key={o}
-              id={`${id}-${i}`}
-              role="option"
-              aria-selected={o === value}
-              className={[i === active ? 'active' : '', o === value ? 'picked' : ''].join(' ').trim() || undefined}
-              onPointerDown={(e) => e.preventDefault()}
-              onMouseEnter={() => setActive(i)}
-              onClick={() => pick(o)}
-            >
-              {o}
-              {o === value && (
-                <span className="bk-combo-tick" aria-hidden>
-                  ✓
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
 
 /* What each score reads as, shown live under the slider. The two ends are
    the client's own anchors ("Just exploring" / "Ready to make this a

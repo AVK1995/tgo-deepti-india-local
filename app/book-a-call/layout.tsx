@@ -11,7 +11,7 @@ import '../bookacall.css';
  */
 export const metadata: Metadata = {
   title: 'Call booking form',
-  description: 'Fill your call booking form and choose your preferred time.',
+  description: 'Fill your call booking form for your 1:1 consultation call.',
   robots: { index: false, follow: false },
 };
 

@@ -4,7 +4,6 @@ import { isTestMode } from '@/lib/checkout-config';
 import {
   OTHER,
   allValid,
-  slotInstants,
   validateBooking,
   type BookingAnswers,
 } from '@/lib/booking-form';
@@ -17,7 +16,7 @@ import {
 /**
  * The booking form's hand-off (2026-11-12). Replaces Cal.com.
  *
- * /book-a-call posts the buyer's answers and preferred slot here, and this
+ * /book-a-call posts the buyer's answers and preferred language here, and this
  * forwards them to BOOKING_WEBHOOK_URL (a NEW webhook, separate from the
  * purchase one in PABBLY_WEBHOOK_URL).
  *
@@ -120,8 +119,7 @@ export async function POST(req: Request) {
     profession: str(body.profession),
     decision: str(body.decision),
     showUp: str(body.showUp),
-    preferredDate: str(body.preferredDate),
-    preferredTime: str(body.preferredTime),
+    preferredLanguage: str(body.preferredLanguage),
   };
 
   const v = validateBooking(a);
@@ -140,8 +138,6 @@ export async function POST(req: Request) {
   const concerns = a.concerns
     .map((c) => (c === OTHER ? `${OTHER}: ${a.concernsOther.trim()}` : c))
     .join(' | ');
-
-  const when = slotInstants(a.preferredDate, a.preferredTime);
 
   const payload = {
     type: 'booking',
@@ -167,23 +163,9 @@ export async function POST(req: Request) {
     city: a.city,
     state: a.state,
 
-    /* The preferred slot, in IST (as the buyer chose it) and in UTC. The
-       un-suffixed keys are IST and stay for any step already mapped to
-       them. A late-night IST slot can be the previous day in UTC, so each
-       zone carries its own date. */
-    preferred_date: a.preferredDate,
-    preferred_time: a.preferredTime,
-    preferred_timezone: 'Asia/Kolkata',
-    preferred_slot: `${a.preferredDate} ${a.preferredTime} IST`,
-    preferred_date_ist: a.preferredDate,
-    preferred_time_ist: a.preferredTime,
-    preferred_time_ist_24h: when?.istTime24 ?? '',
-    preferred_datetime_ist: when?.istIso ?? '',
-    preferred_date_utc: when?.utcDate ?? '',
-    preferred_time_utc: when?.utcTime ?? '',
-    preferred_time_utc_24h: when?.utcTime24 ?? '',
-    preferred_datetime_utc: when?.utcIso ?? '',
-    preferred_slot_utc: when ? `${when.utcDate} ${when.utcTime} UTC` : '',
+    /* Step 4 (2026-11-16): the call language, which replaced the preferred
+       date and time. The team schedules the call itself. */
+    preferred_language: a.preferredLanguage,
 
     current_situation: situation,
     health_concerns: concerns,
