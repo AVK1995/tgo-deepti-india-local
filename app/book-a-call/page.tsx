@@ -18,7 +18,7 @@ import { BookingSuccess } from '@/components/book-a-call/BookingSuccess';
  *
  * ── CALENDAR REPLACED BY A STEPPED FORM (2026-11-12) ───────────────────
  * The Cal.com embed is gone. The buyer completes a four-step consultation
- * profile (About you · Your health · Your commitment · Your preferred time).
+ * profile (About you · Your health · Your commitment · Your preferred language).
  * The answers go to /api/booking, which forwards them to BOOKING_WEBHOOK_URL,
  * and a Senior Consultant then reaches out within 24-48 hours to schedule
  * the call.
@@ -47,7 +47,7 @@ const WA_DIGITS = business.phoneE164.replace(/\D/g, '');
 const REASSURANCES = [
   ['Read by a Senior Consultant', 'Your answers are reviewed before the call, so the call is spent on you.'],
   ['Scheduled for you', 'Our team gets in touch within 24–48 hours to fix your call.'],
-  ['Your time, respected', 'We plan your call around the date and time you choose.'],
+  ['In your language', 'Your call is held in the language you are most comfortable with.'],
 ] as const;
 
 /* Verbatim from FAQ 1 of the landing copy, split at the source's own seams. */

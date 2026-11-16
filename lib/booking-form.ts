@@ -2,7 +2,7 @@
  * THE BOOKING FORM · questions and answer options (2026-11-12)
  *
  * Replaces the Cal.com calendar on /book-a-call. The buyer answers these and
- * names a preferred date and time; the team confirms the slot on WhatsApp.
+ * picks a preferred language; the team then schedules the call.
  *
  * ONE source for both sides: the form renders from these lists and the
  * /api/booking route validates against them, so an option can never be on
@@ -80,59 +80,10 @@ export const SHOW_UP = [
   "No, I'm not ready to commit to the call.",
 ] as const;
 
-/* ── PREFERRED TIME ────────────────────────────────────────────────────
-   Picked as hour (1–12) + minute (:00 / :30) + AM/PM, across the whole
-   day, and stored as "h:mm AM". Every valid value is in TIME_SLOTS, which
-   the server validates against. */
-export const HOURS_12 = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'] as const;
-export const MINUTES = ['00', '30'] as const;
-export const MERIDIEMS = ['AM', 'PM'] as const;
-
-export const TIME_SLOTS: string[] = MERIDIEMS.flatMap((ap) =>
-  HOURS_12.flatMap((h) => MINUTES.map((m) => `${h}:${m} ${ap}`)),
-);
-
-/** "6:30 PM" -> { h: '6', m: '30', ap: 'PM' }, or null if not a slot. */
-export function splitSlot(slot: string) {
-  const r = /^(\d{1,2}):(\d{2}) (AM|PM)$/.exec(slot);
-  return r ? { h: r[1], m: r[2], ap: r[3] as 'AM' | 'PM' } : null;
-}
-
-/** IST is UTC+5:30 all year (India has no daylight saving). */
-const IST_OFFSET_MIN = 330;
-
-/**
- * The chosen IST slot, and the same instant in UTC, for the webhook.
- * "2026-11-15" + "6:30 PM" ->
- *   ist: 2026-11-15T18:30:00+05:30   utc: 2026-11-15T13:00:00Z (1:00 PM)
- * A late-night IST slot can fall on the PREVIOUS day in UTC, which is why
- * the UTC date travels as its own field.
- */
-export function slotInstants(dateIso: string, slot: string) {
-  const [y, mo, d] = dateIso.split('-').map(Number);
-  const s = splitSlot(slot);
-  if (!y || !mo || !d || !s) return null;
-  const h24 = (Number(s.h) % 12) + (s.ap === 'PM' ? 12 : 0);
-  const min = Number(s.m);
-  const utcMs = Date.UTC(y, mo - 1, d, h24, min) - IST_OFFSET_MIN * 60_000;
-  const u = new Date(utcMs);
-  const p = (n: number) => String(n).padStart(2, '0');
-  const uh = u.getUTCHours();
-  return {
-    istIso: `${dateIso}T${p(h24)}:${p(min)}:00+05:30`,
-    istTime24: `${p(h24)}:${p(min)}`,
-    utcIso: u.toISOString().replace('.000Z', 'Z'),
-    utcDate: `${u.getUTCFullYear()}-${p(u.getUTCMonth() + 1)}-${p(u.getUTCDate())}`,
-    utcTime: `${((uh + 11) % 12) + 1}:${p(u.getUTCMinutes())} ${uh < 12 ? 'AM' : 'PM'}`,
-    utcTime24: `${p(uh)}:${p(u.getUTCMinutes())}`,
-  };
-}
-
-/** Earliest bookable day is tomorrow, latest 30 days out (the day strip
- *  on /book-a-call renders exactly this range). */
-export const DATE_MIN_OFFSET_DAYS = 1;
-export const DATE_MAX_OFFSET_DAYS = 30;
-
+/* Step 4 (2026-11-16): replaced the preferred date and time pickers. The
+   team now schedules the call itself, so the only thing it needs from the
+   buyer here is the language to hold it in. */
+export const LANGUAGE = ['English only', 'Hindi only', 'I am comfortable with both'] as const;
 
 /** The answers as the browser sends them to /api/booking. */
 export type BookingAnswers = {
@@ -156,8 +107,7 @@ export type BookingAnswers = {
   profession: string;
   decision: string;
   showUp: string;
-  preferredDate: string; // YYYY-MM-DD
-  preferredTime: string; // one of TIME_SLOTS
+  preferredLanguage: string; // one of LANGUAGE
 };
 
 /* ── FIELD RULES (2026-11-12) ──────────────────────────────────────────
@@ -257,10 +207,8 @@ export function fieldError(a: BookingAnswers, k: keyof ReturnType<typeof validat
       return 'Please select at least one.';
     case 'commitment':
       return 'Please drag the slider to choose a score.';
-    case 'preferredDate':
-      return 'Please choose a date.';
-    case 'preferredTime':
-      return 'Please choose a time.';
+    case 'preferredLanguage':
+      return 'Please choose the language you would like your call in.';
     default:
       return 'Please choose one option.';
   }
@@ -294,8 +242,7 @@ export function validateBooking(a: BookingAnswers) {
     profession: a.profession.trim().length > 1 && a.profession.trim().length <= 120 && hasLetter(a.profession),
     decision: oneOf(DECISION, a.decision),
     showUp: oneOf(SHOW_UP, a.showUp),
-    preferredDate: /^\d{4}-\d{2}-\d{2}$/.test(a.preferredDate),
-    preferredTime: oneOf(TIME_SLOTS, a.preferredTime),
+    preferredLanguage: oneOf(LANGUAGE, a.preferredLanguage),
   };
 }
 

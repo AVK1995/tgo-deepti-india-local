@@ -342,7 +342,7 @@ export default function CheckoutPage() {
                   <strong>10 seconds</strong> without closing or refreshing this
                   tab. You&rsquo;ll then be taken automatically to a short
                   call booking form, where you share your health details and
-                  your preferred date and time for the call. Leaving early may
+                  your preferred language for the call. Leaving early may
                   stop your details from reaching our team.
                 </p>
               </div>
@@ -453,7 +453,7 @@ export default function CheckoutPage() {
                 <span>
                   I understand that after payment, I&rsquo;ll wait up to{' '}
                   <strong>10 seconds</strong> for the booking page to open, then
-                  pick my preferred date and time to book my assessment.
+                  fill in the short form to book my assessment.
                 </span>
               </label>
 

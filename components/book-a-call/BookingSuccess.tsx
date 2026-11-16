@@ -28,23 +28,13 @@ const NEXT = [
   },
   {
     title: 'Our Senior Consultant reaches out',
-    body: 'Within the next 24 to 48 hours, to schedule your call around your preferred time.',
+    body: 'Within the next 24 to 48 hours, to schedule your call with you.',
   },
   {
     title: 'Your 1:1 Consultation Call',
     body: 'Keep your latest blood reports handy. You do not need perfect data.',
   },
 ] as const;
-
-function formatDate(iso: string) {
-  const [y, m, d] = iso.split('-').map(Number);
-  if (!y || !m || !d) return iso;
-  return new Date(y, m - 1, d).toLocaleDateString('en-IN', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-  });
-}
 
 export function BookingSuccess({ summary }: { summary: BookingSummary }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -88,10 +78,10 @@ export function BookingSuccess({ summary }: { summary: BookingSummary }) {
       </p>
 
       <div className="bk-done-chips bk-rise" style={{ '--d': 3 } as React.CSSProperties}>
-        {summary.preferredDate && (
+        {summary.preferredLanguage && (
           <span className="bk-done-chip">
-            <small>Your preferred time</small>
-            {formatDate(summary.preferredDate)} &middot; {summary.preferredTime} IST
+            <small>Call language</small>
+            {summary.preferredLanguage}
           </span>
         )}
         {summary.whatsapp.trim() && (

@@ -205,6 +205,8 @@ re-validates and forwards a FLAT payload to the NEW env var
 Checkout now writes name/email/phone/city to sessionStorage (`dp_buyer`) so
 the form prefills. Older Cal notes below are history.
 
+**2026-11-16:** step 4 is now **Preferred Language** (English only / Hindi only / I am comfortable with both), replacing the preferred date & time pickers; the webhook sends `preferred_language` and no longer sends any `preferred_date*`/`preferred_time*`/`preferred_slot*` fields. The team schedules the call itself.
+
 **Same day, revised:** the form is now a FOUR-STEP stepper (About you · Your
 health · Your commitment · Your preferred date and time), each step validated
 on Continue. "Add guests" was removed on request. Copy reframed as completing
